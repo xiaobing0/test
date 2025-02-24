@@ -5,20 +5,28 @@ import torch.nn.functional as F
 class MultiHeadSelfAttention(nn.Module):
     def __init__(self, embed_dim, num_heads):
         super().__init__()
+        self.q_proj = nn.Linear(embed_dim, embed_dim)
+        self.k_proj = nn.Linear(embed_dim, embed_dim)
+        self.v_proj = nn.Linear(embed_dim, embed_dim)
+        self.o_proj = nn.Linear(embed_dim, embed_dim)
         self.attention = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True)
     
     def forward(self, x):
-        attn_output, _ = self.attention(x, x, x)
-        return attn_output
+        q, k, v = self.q_proj(x), self.k_proj(x), self.v_proj(x)
+        attn_output, _ = self.attention(q, k, v)
+        return self.o_proj(attn_output)
 
 class Expert(nn.Module):
     def __init__(self, embed_dim, hidden_dim):
         super().__init__()
-        self.fc1 = nn.Linear(embed_dim, hidden_dim)
-        self.fc2 = nn.Linear(hidden_dim, embed_dim)
+        self.w1 = nn.Linear(embed_dim, hidden_dim)
+        self.w2 = nn.Linear(hidden_dim, embed_dim)
+        self.w3 = nn.Linear(embed_dim, hidden_dim)
     
     def forward(self, x):
-        return self.fc2(F.relu(self.fc1(x)))
+        x = F.gelu(self.w1(x))
+        x = F.gelu(self.w2(x))
+        return self.w3(x)
 
 class MoELayer(nn.Module):
     def __init__(self, embed_dim, hidden_dim, num_experts, top_k=2):
@@ -49,16 +57,18 @@ class MoELayer(nn.Module):
         return output
 
 class MixtralBlock(nn.Module):
-    def __init__(self, embed_dim=4096, num_heads=32, num_experts=8, hidden_dim=16384):
+    def __init__(self, embed_dim=4096, num_heads=32, num_experts=8, hidden_dim=14336):
         super().__init__()
-        self.ln1 = nn.LayerNorm(embed_dim)
+        self.input_layernorm = nn.LayerNorm(embed_dim)
         self.attn = MultiHeadSelfAttention(embed_dim, num_heads)
-        self.ln2 = nn.LayerNorm(embed_dim)
+        self.post_attention_layernorm = nn.LayerNorm(embed_dim)
         self.moe = MoELayer(embed_dim, hidden_dim, num_experts)
     
     def forward(self, x):
-        x = x + self.attn(self.ln1(x))  # 残差连接
-        x = x + self.moe(self.ln2(x))  # 残差连接
+        x = self.input_layernorm(x)
+        x = x + self.attn(x)  # 残差连接
+        x = self.post_attention_layernorm(x)
+        x = x + self.moe(x)  # 残差连接
         return x
 
 # 创建随机输入
