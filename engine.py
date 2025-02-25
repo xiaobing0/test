@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import time
+import os
 
 class MultiHeadSelfAttention(nn.Module):
     def __init__(self, embed_dim, num_heads):
@@ -68,16 +70,43 @@ class MixtralBlock(nn.Module):
         x = self.post_attention_layernorm(x)
         x = x + self.moe(x)  # 残差连接
         return x
+    
+
+def get_pytorch_model_size(model):
+    torch.save(model.state_dict(), "temp_model.pth")
+    size_mb = os.path.getsize("temp_model.pth") / (1024 * 1024)
+    os.remove("temp_model.pth")
+    return size_mb
+
+# 示例
+# model = YourPyTorchModel()
+# print(f"Model Size: {get_pytorch_model_size(model):.2f} MB")
+
+
+# 示例
+# model = YourPyTorchModel()
+# print(f"Model Size: {get_pytorch_model_size(model):.2f} MB")
+
+torch.cuda.empty_cache()  # 释放显存缓存
+torch.cuda.ipc_collect()  # 清理 PyTorch 内存池
 
 # 创建随机输入
 batch_size = 1
 seq_len = 128
 embed_dim = 4096
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 random_input = torch.randn(batch_size, seq_len, embed_dim)
-
-# 初始化 Mixtral Block
 mixtral_block = MixtralBlock()
+
+# random_input = torch.randn(batch_size, seq_len, embed_dim, device=device)
+# mixtral_block = MixtralBlock().to(device)
+
+
+
+t1 = time.time()
 output = mixtral_block(random_input)
+t2 = time.time()
 
 print("Output shape:", output.shape)
+print("Time cost:",t2-t1)
