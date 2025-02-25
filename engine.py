@@ -20,13 +20,13 @@ class Expert(nn.Module):
     def __init__(self, embed_dim, hidden_dim):
         super().__init__()
         self.w1 = nn.Linear(embed_dim, hidden_dim)
-        self.w2 = nn.Linear(hidden_dim, embed_dim)
-        self.w3 = nn.Linear(embed_dim, hidden_dim)
+        self.w2 = nn.Linear(hidden_dim, hidden_dim)
+        self.w3 = nn.Linear(hidden_dim, embed_dim)  # 修正: 14336 -> 4096
     
     def forward(self, x):
         x = F.gelu(self.w1(x))
         x = F.gelu(self.w2(x))
-        return self.w3(x)
+        return self.w3(x)  # 修正: 确保输出维度正确
 
 class MoELayer(nn.Module):
     def __init__(self, embed_dim, hidden_dim, num_experts, top_k=2):
@@ -44,14 +44,12 @@ class MoELayer(nn.Module):
         topk_values, topk_indices = torch.topk(gate_weights, self.top_k, dim=-1)  # 选择 top-2
         
         output = torch.zeros_like(x)
+        expert_outputs = torch.stack([self.experts[j](x) for j in range(self.num_experts)], dim=-1)  # (batch, seq_len, embed_dim, num_experts)
+        
         for i in range(self.top_k):
-            expert_idx = topk_indices[..., i]
+            expert_idx = topk_indices[..., i].unsqueeze(-1).unsqueeze(-1).expand(-1, -1, embed_dim, 1)  # (batch, seq_len, embed_dim, 1)
+            selected_expert_output = torch.gather(expert_outputs, -1, expert_idx).squeeze(-1)  # (batch, seq_len, embed_dim)
             weight = topk_values[..., i].unsqueeze(-1)  # (batch, seq_len, 1)
-            
-            expert_outputs = torch.stack([self.experts[j](x) for j in range(self.num_experts)], dim=-1)  # (batch, seq_len, embed_dim, num_experts)
-            
-            selected_expert_output = torch.gather(expert_outputs, -1, expert_idx.unsqueeze(-1).expand(-1, -1, embed_dim, 1)).squeeze(-1)  # (batch, seq_len, embed_dim)
-            
             output += weight * selected_expert_output
         
         return output
@@ -72,7 +70,7 @@ class MixtralBlock(nn.Module):
         return x
 
 # 创建随机输入
-batch_size = 2
+batch_size = 1
 seq_len = 128
 embed_dim = 4096
 
